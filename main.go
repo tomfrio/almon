@@ -20,9 +20,10 @@ type channelsResponse struct {
 
 func main() {
 	// create broadcasting hub
-	hub := core.NewHub()
+	hub := NewHub()
 
 	// add streamers to the hub here..
+	providers := make([]StreamProvider, 0)
 
 	// start broadcasting
 	hub.Broadcast()
@@ -35,13 +36,13 @@ func main() {
 	// serve endpoints
 	http.HandleFunc("/", handleIndex)
 	http.HandleFunc("/channels", func(w http.ResponseWriter, r *http.Request) {
-		handleChannels(w, r, exchanges)
+		handleChannels(w, r, providers)
 	})
 
 	http.ListenAndServe(":8000", nil)
 }
 
-func handleSocketConnection(res http.ResponseWriter, req *http.Request, hub *core.Hub) {
+func handleSocketConnection(res http.ResponseWriter, req *http.Request, hub *Hub) {
 	conn, err := upgrader.Upgrade(res, req, nil)
 	if err != nil {
 		fmt.Println(err)
@@ -49,7 +50,7 @@ func handleSocketConnection(res http.ResponseWriter, req *http.Request, hub *cor
 	}
 
 	// create a listening client
-	core.NewClient(conn, hub)
+	NewClient(conn, hub)
 }
 
 // GET index page
