@@ -1,4 +1,4 @@
-package streamer
+package almon
 
 // Possible events
 const (

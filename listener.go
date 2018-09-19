@@ -1,4 +1,4 @@
-package streamer
+package almon
 
 import (
 	"encoding/json"
@@ -18,16 +18,8 @@ type channelsResponse struct {
 	Channels map[int]string `json:"channels"`
 }
 
-func main() {
-	// create broadcasting hub
-	hub := NewHub()
-
-	// add streamers to the hub here..
-	providers := make([]StreamProvider, 0)
-
-	// start broadcasting
-	hub.Broadcast()
-
+// Listen for traffic on a hub
+func Listen(hub *Hub, providers []StreamerProvider, port int) {
 	// serve websockets
 	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 		handleSocketConnection(w, r, hub)
@@ -39,7 +31,8 @@ func main() {
 		handleChannels(w, r, providers)
 	})
 
-	http.ListenAndServe(":8000", nil)
+	fmt.Printf("listening on port %d\n", port)
+	http.ListenAndServe(fmt.Sprintf(":%d", port), nil)
 }
 
 func handleSocketConnection(res http.ResponseWriter, req *http.Request, hub *Hub) {
@@ -59,7 +52,7 @@ func handleIndex(w http.ResponseWriter, r *http.Request) {
 }
 
 // GET all available channels
-func handleChannels(w http.ResponseWriter, r *http.Request, providers []StreamProvider) {
+func handleChannels(w http.ResponseWriter, r *http.Request, providers []StreamerProvider) {
 	w.Header().Set("Content-Type", "application/json")
 	enableCors(&w)
 

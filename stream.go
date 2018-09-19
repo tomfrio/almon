@@ -1,4 +1,4 @@
-package streamer
+package almon
 
 import (
 	"errors"
@@ -18,43 +18,12 @@ type Stream struct {
 	*sync.RWMutex
 }
 
-// StreamProvider represents a configured data stream
-type StreamProvider interface {
-	GetStreamer() *HubStreamer
-	Stream()
-	ParseData(data []byte) (*[]interface{}, error)
-}
-
-// Streamer is a concrete streaming instance
-type Streamer struct {
-	ID      int
-	Name    string
-	streams *HubStreamer
-	sync.RWMutex
-}
-
 // NewStream returns a new Stream instance
 func NewStream() *Stream {
 	return &Stream{
 		make(chan Streamable),
 		make(map[string]chan<- Streamable),
 		&sync.RWMutex{},
-	}
-}
-
-// NewStreamer returns a new Streamer instance
-func NewStreamer(id int, name string) *Streamer {
-	packets := make(map[int]*Stream)
-
-	// add packet streams here..
-	packets[id] = NewStream()
-
-	return &Streamer{
-		ID:   id,
-		Name: name,
-		streams: &HubStreamer{
-			Streams: packets,
-		},
 	}
 }
 
