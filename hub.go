@@ -1,122 +1,111 @@
 package almon
 
 import (
-	"errors"
 	"fmt"
+	"net/http"
 	"sync"
+
+	"github.com/gorilla/websocket"
 )
 
-// HubStreamer contains separated streams for a hub
-type HubStreamer struct {
-	Streams map[int]*Stream
+var upgrader = websocket.Upgrader{
+	CheckOrigin:     func(r *http.Request) bool { return true },
+	ReadBufferSize:  1024,
+	WriteBufferSize: 1024,
 }
 
 // Hub contains streams for receiving and broadcasting data
 type Hub struct {
-	Streamers map[int]*HubStreamer
+	Publisher   Publisher
+	Subscribers map[string]*Client
 	sync.RWMutex
 }
 
 // NewHub returns a new Hub instance
-func NewHub() *Hub {
+func NewHub(pub Publisher) *Hub {
 	return &Hub{
-		Streamers: make(map[int]*HubStreamer),
+		Publisher:   pub,
+		Subscribers: map[string]*Client{},
 	}
 }
 
-// AddStreamer adds a new streamer to the hub
-func (hub *Hub) AddStreamer(id int, streamer *HubStreamer) {
-	hub.Streamers[id] = streamer
+// Broadcast starts broadcasting
+func (hub *Hub) Broadcast(port int) {
+	// stream data
+	hub.Stream()
+
+	// serve websockets
+	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
+		handleSocketConnection(w, r, hub)
+	})
+
+	fmt.Printf("listening on port %d\n", port)
+	http.ListenAndServe(fmt.Sprintf(":%d", port), nil)
 }
 
-// Broadcast the data on all streamers to their subscribers
-func (hub *Hub) Broadcast() {
-	for _, streamer := range hub.Streamers {
-		for _, stream := range streamer.Streams {
-			stream.Broadcast()
+// Stream handles the pub/sub streaming
+func (hub *Hub) Stream() {
+	output := make(chan Streamable)
+
+	// stream published data
+	go func() {
+		defer close(output)
+		for published := range hub.Publisher.GetStream() {
+			output <- published
 		}
-	}
-}
+	}()
 
-// Subscribe a client to a stream
-func (hub *Hub) Subscribe(event SubscriptionEvent, c *Client) (string, error) {
-	stream, err := hub.getStreamForEvent(event)
-	if err != nil {
-		return "", err
-	}
-
-	err = stream.Subscribe(c.Identifier, c.data)
-	if err != nil {
-		return "", err
-	}
-
-	return fmt.Sprintf("channel-%d-%d", event.ChannelID, event.StreamID), nil
-}
-
-// Unsubscribe a client from a stream
-func (hub *Hub) Unsubscribe(event SubscriptionEvent, c *Client) (string, error) {
-	stream, err := hub.getStreamForEvent(event)
-	if err != nil {
-		return "", err
-	}
-
-	err = stream.Unsubscribe(c.Identifier)
-	if err != nil {
-		return "", err
-	}
-
-	return fmt.Sprintf("channel-%d-%d", event.ChannelID, event.StreamID), nil
-}
-
-// UnsubscribeClient unsubscribes a client from all stream
-func (hub *Hub) UnsubscribeClient(c *Client) error {
-	i := 0
-	for _, streamers := range hub.Streamers {
-		for _, stream := range streamers.Streams {
-			_, ok := stream.Subscribers[c.Identifier]
-			if ok {
-				err := stream.Unsubscribe(c.Identifier)
-				if err != nil {
-					return err
-				}
-				i++
+	// fan out to all subscribers
+	go func() {
+		for out := range output {
+			hub.RLock()
+			for _, sub := range hub.Subscribers {
+				sub.data <- out
 			}
+			hub.RUnlock()
 		}
-	}
-
-	fmt.Printf("`%s` unsubscribed from %d channel(s).\n", c.Identifier, i)
-	return nil
+	}()
 }
 
-func (hub *Hub) getStreamForEvent(event SubscriptionEvent) (*Stream, error) {
-	if event.ChannelID < 1 {
-		return nil, errors.New("no channel supplied")
+// Subscribe a client to the channel
+func (hub *Hub) Subscribe(c *Client) (string, error) {
+	hub.Lock()
+	defer hub.Unlock()
+
+	name := hub.Publisher.GetName()
+
+	_, ok := hub.Subscribers[c.Identifier]
+	if ok {
+		return "", fmt.Errorf("already subscribed to `%s`", name)
 	}
 
-	if event.StreamID < 1 {
-		return nil, errors.New("no stream supplied")
-	}
-
-	streamer, ok := hub.Streamers[event.ChannelID]
-	if !ok {
-		return nil, fmt.Errorf("no stream for channel %d available", event.ChannelID)
-	}
-
-	stream, ok := streamer.Streams[event.StreamID]
-	if !ok {
-		return nil, fmt.Errorf("stream %d not available", event.StreamID)
-	}
-
-	return stream, nil
+	hub.Subscribers[c.Identifier] = c
+	return name, nil
 }
 
-// CloseChannels closes all subscribed and publishing channels on the streamer
-func (hs *HubStreamer) CloseChannels() {
-	for _, stream := range hs.Streams {
-		stream.Close()
+// Unsubscribe a client from the channel
+func (hub *Hub) Unsubscribe(c *Client) (string, error) {
+	hub.Lock()
+	defer hub.Unlock()
+
+	name := hub.Publisher.GetName()
+
+	_, ok := hub.Subscribers[c.Identifier]
+	if !ok {
+		return "", fmt.Errorf("not subscribed to `%s`", name)
 	}
 
-	for _, stream := range hs.Streams {
-		stream.Close()
+	delete(hub.Subscribers, c.Identifier)
+	return name, nil
+}
+
+func handleSocketConnection(res http.ResponseWriter, req *http.Request, hub *Hub) {
+	conn, err := upgrader.Upgrade(res, req, nil)
+	if err != nil {
+		fmt.Println(err)
+		return
 	}
+
+	// create a listening client
+	NewClient(conn, hub)
 }

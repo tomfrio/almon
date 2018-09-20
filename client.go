@@ -87,32 +87,26 @@ func (c *Client) listen() {
 			continue
 		}
 
-		sub, err := c.parseSubscription(msg)
-		if err != nil {
-			fmt.Println(err)
-			continue
-		}
-
 		switch event.Event {
 		case SUBSCRIBE:
-			channel, err := c.hub.Subscribe(sub, c)
+			channel, err := c.hub.Subscribe(c)
 			if err != nil {
 				event := Event{"error", 2, fmt.Sprintf("could not subscribe: %s", err)}
 				c.events <- event
 				continue
 			}
 
-			event := Event{"info", 1, fmt.Sprintf("successfully subscribed to %s", channel)}
+			event := Event{"info", 1, fmt.Sprintf("successfully subscribed to `%s`", channel)}
 			c.events <- event
 		case UNSUBSCRIBE:
-			channel, err := c.hub.Unsubscribe(sub, c)
+			channel, err := c.hub.Unsubscribe(c)
 			if err != nil {
 				event := Event{"error", 2, fmt.Sprintf("could not unsubscribe: %s", err)}
 				c.events <- event
 				continue
 			}
 
-			event := Event{"info", 1, fmt.Sprintf("successfully unsubscribed from %s", channel)}
+			event := Event{"info", 1, fmt.Sprintf("successfully unsubscribed from `%s`", channel)}
 			c.events <- event
 		}
 	}
@@ -124,21 +118,11 @@ func (c *Client) closeConnection(err error) {
 
 	fmt.Printf("`%s` disconnected: %s\n", c.Identifier, err)
 
-	// unsubscribe client from all streams
-	err = c.hub.UnsubscribeClient(c)
+	// unsubscribe client the channel
+	_, err = c.hub.Unsubscribe(c)
 	if err != nil {
 		fmt.Println(err)
 	}
-}
-
-func (c *Client) parseSubscription(msg []byte) (SubscriptionEvent, error) {
-	var sub SubscriptionEvent
-	err := json.Unmarshal([]byte(msg), &sub)
-	if err != nil {
-		return sub, fmt.Errorf("could not parse subscription: %s", err)
-	}
-
-	return sub, nil
 }
 
 func (c *Client) parseEvent(msg []byte) (Event, error) {
