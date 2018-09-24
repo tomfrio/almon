@@ -46,7 +46,7 @@ func NewClient(socket *websocket.Conn, hub *Hub) *Client {
 	fmt.Printf("`%s` connected on `%s`.\n", client.Identifier, host)
 
 	// notify the client
-	event := Event{"info", 1, fmt.Sprintf("successfully connected as %s", client.Identifier)}
+	event := Event{"info", 1, fmt.Sprintf("successfully connected as `%s`", client.Identifier)}
 	client.events <- event
 
 	return client
