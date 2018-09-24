@@ -1,9 +1,13 @@
 package almon
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
+	"os"
+	"os/signal"
 	"sync"
+	"syscall"
 
 	"github.com/gorilla/websocket"
 )
@@ -48,15 +52,15 @@ func (hub *Hub) Stream() {
 	output := make(chan Streamable)
 
 	// stream published data
-	go func() {
+	go func(hub *Hub) {
 		defer close(output)
 		for published := range hub.Publisher.GetStream() {
 			output <- published
 		}
-	}()
+	}(hub)
 
 	// fan out to all subscribers
-	go func() {
+	go func(hub *Hub) {
 		for out := range output {
 			hub.RLock()
 			for _, sub := range hub.Subscribers {
@@ -64,7 +68,21 @@ func (hub *Hub) Stream() {
 			}
 			hub.RUnlock()
 		}
-	}()
+	}(hub)
+
+	// listen for system signals
+	ch := make(chan os.Signal)
+	signal.Notify(ch, os.Interrupt, syscall.SIGTERM)
+	go func(hub *Hub) {
+		select {
+		case sig := <-ch:
+			fmt.Printf("got `%s` signal. closing all connections.\n", sig)
+			for _, sub := range hub.Subscribers {
+				sub.closeConnection(errors.New("server going down"), websocket.CloseServiceRestart)
+			}
+			os.Exit(1)
+		}
+	}(hub)
 }
 
 // Subscribe a client to the channel
