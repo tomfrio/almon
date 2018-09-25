@@ -79,7 +79,7 @@ func (hub *Hub) Stream() {
 			fmt.Printf("got `%s` signal. closing all connections.\n", sig)
 			// TODO: close 'connections' rather than subscribers
 			for _, sub := range hub.Subscribers {
-				sub.closeConnection(errors.New("server going down"), websocket.CloseServiceRestart)
+				sub.closeConnection(errors.New("server going down"), websocket.CloseAbnormalClosure)
 			}
 			os.Exit(1)
 		}

@@ -154,19 +154,15 @@ func (c *Client) closeConnection(connErr error, closeCode int) {
 
 	fmt.Printf("`%s` disconnected.\n", c.Identifier)
 
-	if closeCode == websocket.CloseAbnormalClosure {
-		// don't close gracefully
-		c.socket.Close()
-		return
-	}
-
-	// send close message
-	err = c.socket.WriteControl(
-		websocket.CloseMessage,
-		websocket.FormatCloseMessage(closeCode, connErr.Error()),
-		time.Now().Add(5*time.Second))
-	if err != nil {
-		fmt.Println(err)
+	if closeCode != websocket.CloseAbnormalClosure {
+		// close gracefully
+		err = c.socket.WriteControl(
+			websocket.CloseMessage,
+			websocket.FormatCloseMessage(closeCode, connErr.Error()),
+			time.Now().Add(5*time.Second))
+		if err != nil {
+			fmt.Println(err)
+		}
 	}
 
 	c.socket.Close()
