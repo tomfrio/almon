@@ -156,6 +156,7 @@ func (c *Client) closeConnection(connErr error, closeCode int) {
 
 	if closeCode == websocket.CloseAbnormalClosure {
 		// don't close gracefully
+		c.socket.Close()
 		return
 	}
 
@@ -167,6 +168,8 @@ func (c *Client) closeConnection(connErr error, closeCode int) {
 	if err != nil {
 		fmt.Println(err)
 	}
+
+	c.socket.Close()
 }
 
 func (c *Client) parseEvent(msg []byte) (Event, error) {
