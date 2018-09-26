@@ -54,21 +54,18 @@ func NewClient(socket *websocket.Conn, hub *Hub) *Client {
 
 // Write broadcasted data to the client's stream
 func (c *Client) write() {
-	// ticker := time.NewTicker(pingPeriod)
-	// defer func() {
-	// 	ticker.Stop()
-	// }()
+	defer func() {
+		c.closeConnection(errors.New("write error"), websocket.CloseAbnormalClosure)
+	}()
 
 	for {
 		select {
 		case streamable, ok := <-c.data:
 			// stream data
 			if !ok {
-				c.closeConnection(errors.New("write error"), websocket.CloseAbnormalClosure)
 				return
 			}
 			if err := c.socket.WriteMessage(websocket.TextMessage, []byte(streamable.Print())); err != nil {
-				c.closeConnection(err, websocket.CloseNormalClosure)
 				return
 			}
 		case event := <-c.events:
@@ -78,12 +75,6 @@ func (c *Client) write() {
 				c.closeConnection(err, websocket.CloseNormalClosure)
 				return
 			}
-			// case <-ticker.C:
-			// 	// send ping
-			// 	c.socket.SetWriteDeadline(time.Now().Add(writeWait))
-			// 	if err := c.socket.WriteMessage(websocket.PingMessage, nil); err != nil {
-			// 		return
-			// 	}
 		}
 	}
 }
@@ -93,14 +84,6 @@ func (c *Client) listen() {
 	defer func() {
 		c.closeConnection(errors.New("read error"), websocket.CloseAbnormalClosure)
 	}()
-
-	// c.socket.SetReadLimit(maxMessageSize)
-	// c.socket.SetReadDeadline(time.Now().Add(readWait))
-	// c.socket.SetPongHandler(func(string) error {
-	// 	// pong received: reset deadline
-	// 	c.socket.SetReadDeadline(time.Now().Add(readWait))
-	// 	return nil
-	// })
 
 	for {
 		_, msg, err := c.socket.ReadMessage()
@@ -156,13 +139,13 @@ func (c *Client) closeConnection(connErr error, closeCode int) {
 
 	if closeCode != websocket.CloseAbnormalClosure {
 		// close gracefully
-		// err = c.socket.WriteControl(
-		// 	websocket.CloseMessage,
-		// 	websocket.FormatCloseMessage(closeCode, connErr.Error()),
-		// 	time.Now().Add(5*time.Second))
-		// if err != nil {
-		// 	fmt.Println(err)
-		// }
+		err = c.socket.WriteControl(
+			websocket.CloseMessage,
+			websocket.FormatCloseMessage(closeCode, connErr.Error()),
+			time.Now().Add(5*time.Second))
+		if err != nil {
+			fmt.Println(err)
+		}
 	}
 
 	c.socket.Close()
