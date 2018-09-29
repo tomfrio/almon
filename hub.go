@@ -21,14 +21,16 @@ var upgrader = websocket.Upgrader{
 // Hub contains streams for receiving and broadcasting data
 type Hub struct {
 	Publisher   Publisher
+	Writer      Writer
 	Subscribers map[string]*Client
 	sync.RWMutex
 }
 
 // NewHub returns a new Hub instance
-func NewHub(pub Publisher) *Hub {
+func NewHub(pub Publisher, wr Writer) *Hub {
 	return &Hub{
 		Publisher:   pub,
+		Writer:      wr,
 		Subscribers: map[string]*Client{},
 	}
 }

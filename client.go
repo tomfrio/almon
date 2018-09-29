@@ -1,7 +1,6 @@
 package almon
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"math/rand"
@@ -39,21 +38,20 @@ func NewClient(socket *websocket.Conn, hub *Hub) *Client {
 		hub,
 	}
 
-	go client.write()
+	go client.write(hub.Writer)
 	go client.listen()
 
 	host, _ := os.Hostname()
 	fmt.Printf("`%s` connected on `%s`.\n", client.Identifier, host)
 
 	// notify the client
-	event := Event{"info", 1, fmt.Sprintf("successfully connected as `%s`", client.Identifier)}
-	client.events <- event
+	client.events <- *NewEvent("info", 1, fmt.Sprintf("successfully connected as `%s`", client.Identifier))
 
 	return client
 }
 
 // Write broadcasted data to the client's stream
-func (c *Client) write() {
+func (c *Client) write(wr Writer) {
 	defer func() {
 		c.closeConnection(errors.New("write error"), websocket.CloseAbnormalClosure)
 	}()
@@ -65,14 +63,12 @@ func (c *Client) write() {
 			if !ok {
 				return
 			}
-			if err := c.socket.WriteMessage(websocket.TextMessage, []byte(streamable.Print())); err != nil {
+			if err := wr.WriteToClientStream(c, streamable); err != nil {
 				return
 			}
 		case event := <-c.events:
 			// stream events
-			jsonData, _ := json.Marshal(event)
-			if err := c.socket.WriteJSON(string(jsonData)); err != nil {
-				c.closeConnection(err, websocket.CloseNormalClosure)
+			if err := wr.WriteToClientStream(c, event); err != nil {
 				return
 			}
 		}
@@ -97,33 +93,29 @@ func (c *Client) listen() {
 			return
 		}
 
-		event, err := c.parseEvent(msg)
+		received, err := ParseEventFromJSON(msg)
 		if err != nil {
 			// not parseable: skip
 			continue
 		}
 
-		switch event.Event {
+		switch received.Event {
 		case SUBSCRIBE:
 			channel, err := c.hub.Subscribe(c)
 			if err != nil {
-				event := Event{"error", 2, fmt.Sprintf("could not subscribe: %s", err)}
-				c.events <- event
+				c.events <- *NewEvent("error", 2, fmt.Sprintf("could not subscribe: %s", err))
 				continue
 			}
 
-			event := Event{"info", 1, fmt.Sprintf("successfully subscribed to `%s`", channel)}
-			c.events <- event
+			c.events <- *NewEvent("info", 1, fmt.Sprintf("successfully subscribed to `%s`", channel))
 		case UNSUBSCRIBE:
 			channel, err := c.hub.Unsubscribe(c)
 			if err != nil {
-				event := Event{"error", 2, fmt.Sprintf("could not unsubscribe: %s", err)}
-				c.events <- event
+				c.events <- *NewEvent("error", 2, fmt.Sprintf("could not unsubscribe: %s", err))
 				continue
 			}
 
-			event := Event{"info", 1, fmt.Sprintf("successfully unsubscribed from `%s`", channel)}
-			c.events <- event
+			c.events <- *NewEvent("info", 1, fmt.Sprintf("successfully unsubscribed from `%s`", channel))
 		}
 	}
 }
@@ -149,16 +141,6 @@ func (c *Client) closeConnection(connErr error, closeCode int) {
 	}
 
 	c.socket.Close()
-}
-
-func (c *Client) parseEvent(msg []byte) (Event, error) {
-	var event Event
-	err := json.Unmarshal([]byte(msg), &event)
-	if err != nil {
-		return event, fmt.Errorf("could not parse event: %s", err)
-	}
-
-	return event, nil
 }
 
 func randomString(n int) string {

@@ -1,5 +1,10 @@
 package almon
 
+import (
+	"encoding/json"
+	"fmt"
+)
+
 // Possible events
 const (
 	SUBSCRIBE   = "subscribe"
@@ -16,6 +21,27 @@ type Event struct {
 	Event   string `json:"event"`
 	Code    int    `json:"code"`
 	Message string `json:"message"`
+	ByteStreamed
+}
+
+// NewEvent creates a new event instance
+func NewEvent(event string, code int, message string) *Event {
+	return &Event{
+		Event:   event,
+		Code:    code,
+		Message: message,
+	}
+}
+
+// ParseEventFromJSON parses an event instance from json data
+func ParseEventFromJSON(msg []byte) (Event, error) {
+	var event Event
+	err := json.Unmarshal(msg, &event)
+	if err != nil {
+		return event, fmt.Errorf("could not parse event: %s", err)
+	}
+
+	return event, nil
 }
 
 func (e *Event) getEvent() string {
