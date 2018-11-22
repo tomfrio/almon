@@ -41,7 +41,7 @@ func (hub *Hub) Broadcast(port int) {
 	hub.Stream()
 
 	// serve websockets
-	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		handleSocketConnection(w, r, hub)
 	})
 
