@@ -53,6 +53,15 @@ func (hub *Hub) Broadcast(port int) {
 	http.ListenAndServe(fmt.Sprintf(":%d", port), nil)
 }
 
+// HasStream checks whether the hub has a specific streaming channel
+func (hub *Hub) HasStream(name string) bool {
+	if _, err := hub.Publisher.GetStream(name); err != nil {
+		return false
+	}
+
+	return true
+}
+
 // Stream handles the pub/sub streaming for a single stream
 func (hub *Hub) Stream(name string) {
 	output := make(chan Streamable)
@@ -93,11 +102,9 @@ func (hub *Hub) listenForShutdown() {
 		case sig := <-ch:
 			fmt.Printf("got `%s` signal. closing all connections.\n", sig)
 			// TODO: close 'connections' rather than subscribers
-			hub.RLock()
 			for _, sub := range hub.Subscribers {
 				sub.closeConnection(errors.New("server going down"), websocket.CloseServiceRestart)
 			}
-			hub.RUnlock()
 			os.Exit(1)
 		}
 	}(hub)

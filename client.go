@@ -85,6 +85,10 @@ func (c *Client) Subscribe(metadata map[string]string) (string, error) {
 		return name, fmt.Errorf("already subscribed to `%s`", name)
 	}
 
+	if !c.hub.HasStream(name) {
+		return name, fmt.Errorf("channel `%s` does not exist", name)
+	}
+
 	c.subscriptions = append(c.subscriptions, clientSubscription{
 		Name:           name,
 		Specifications: []string{},
