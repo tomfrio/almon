@@ -38,7 +38,11 @@ func NewHub(pub Publisher, wr Writer) *Hub {
 // Broadcast starts broadcasting
 func (hub *Hub) Broadcast(port int) {
 	// stream data
-	hub.Stream()
+	for name := range hub.Publisher.GetStreams() {
+		hub.Stream(name)
+	}
+
+	hub.listenForShutdown()
 
 	// serve websockets
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -49,14 +53,21 @@ func (hub *Hub) Broadcast(port int) {
 	http.ListenAndServe(fmt.Sprintf(":%d", port), nil)
 }
 
-// Stream handles the pub/sub streaming
-func (hub *Hub) Stream() {
+// Stream handles the pub/sub streaming for a single stream
+func (hub *Hub) Stream(name string) {
 	output := make(chan Streamable)
 
 	// stream published data
 	go func(hub *Hub) {
 		defer close(output)
-		for published := range hub.Publisher.GetStream() {
+		stream, err := hub.Publisher.GetStream(name)
+		if err != nil {
+			fmt.Printf("streaming error: %s\n", err)
+			return
+		}
+
+		fmt.Printf("streaming %s\n", name)
+		for published := range stream {
 			output <- published
 		}
 	}(hub)
@@ -65,13 +76,15 @@ func (hub *Hub) Stream() {
 	go func(hub *Hub) {
 		for out := range output {
 			hub.RLock()
-			for _, sub := range hub.Subscribers {
+			for _, sub := range hub.GetSubscribers(name) {
 				sub.data <- out
 			}
 			hub.RUnlock()
 		}
 	}(hub)
+}
 
+func (hub *Hub) listenForShutdown() {
 	// listen for system signals
 	ch := make(chan os.Signal)
 	signal.Notify(ch, os.Interrupt, syscall.SIGTERM)
@@ -80,16 +93,30 @@ func (hub *Hub) Stream() {
 		case sig := <-ch:
 			fmt.Printf("got `%s` signal. closing all connections.\n", sig)
 			// TODO: close 'connections' rather than subscribers
+			hub.RLock()
 			for _, sub := range hub.Subscribers {
 				sub.closeConnection(errors.New("server going down"), websocket.CloseServiceRestart)
 			}
+			hub.RUnlock()
 			os.Exit(1)
 		}
 	}(hub)
 }
 
-// Subscribe a client to the channel
-func (hub *Hub) Subscribe(c *Client) (string, error) {
+// GetSubscribers gets all eligible subscribers for a given stream
+func (hub *Hub) GetSubscribers(stream string) map[string]*Client {
+	streamSubs := make(map[string]*Client)
+	for name, sub := range hub.Subscribers {
+		if sub.IsSubscribed(stream) {
+			streamSubs[name] = sub
+		}
+	}
+
+	return streamSubs
+}
+
+// Attach a client to the hub
+func (hub *Hub) Attach(c *Client) (string, error) {
 	hub.Lock()
 	defer hub.Unlock()
 
@@ -97,15 +124,15 @@ func (hub *Hub) Subscribe(c *Client) (string, error) {
 
 	_, ok := hub.Subscribers[c.Identifier]
 	if ok {
-		return "", fmt.Errorf("already subscribed to `%s`", name)
+		return name, fmt.Errorf("already attached to `%s`", name)
 	}
 
 	hub.Subscribers[c.Identifier] = c
 	return name, nil
 }
 
-// Unsubscribe a client from the channel
-func (hub *Hub) Unsubscribe(c *Client) (string, error) {
+// Detach a client from the hub
+func (hub *Hub) Detach(c *Client) (string, error) {
 	hub.Lock()
 	defer hub.Unlock()
 
@@ -113,7 +140,7 @@ func (hub *Hub) Unsubscribe(c *Client) (string, error) {
 
 	_, ok := hub.Subscribers[c.Identifier]
 	if !ok {
-		return "", fmt.Errorf("not subscribed to `%s`", name)
+		return name, fmt.Errorf("not attached to `%s`", name)
 	}
 
 	delete(hub.Subscribers, c.Identifier)

@@ -17,25 +17,33 @@ const (
 	maxMessageSize = 512
 )
 
+type clientSubscription struct {
+	Name           string
+	Specifications []string
+}
+
 // Client represents a client websocket connection
 type Client struct {
-	Identifier string
-	socket     *websocket.Conn
-	data       chan Streamable
-	events     chan Event
-	hub        *Hub
+	Identifier    string
+	socket        *websocket.Conn
+	data          chan Streamable
+	events        chan Event
+	hub           *Hub
+	subscriptions []clientSubscription
 }
 
 // NewClient returns a new Client instance
 func NewClient(socket *websocket.Conn, hub *Hub) *Client {
 	identifier := randomString(6)
 
+	var subs []clientSubscription
 	client := &Client{
 		identifier,
 		socket,
 		make(chan Streamable),
 		make(chan Event),
 		hub,
+		subs,
 	}
 
 	go client.write(hub.Writer)
@@ -48,6 +56,88 @@ func NewClient(socket *websocket.Conn, hub *Hub) *Client {
 	client.events <- *NewEvent("info", 1, fmt.Sprintf("successfully connected as `%s`", client.Identifier))
 
 	return client
+}
+
+// IsSubscribed checks whether a client is subscribed to a specific stream
+func (c *Client) IsSubscribed(name string) bool {
+	for _, sub := range c.subscriptions {
+		if sub.Name == name {
+			return true
+		}
+	}
+
+	return false
+}
+
+// Subscribe a client to a channel
+func (c *Client) Subscribe(metadata map[string]string) (string, error) {
+	name, ok := metadata["channel"]
+	if !ok {
+		return name, errors.New("no channel specified")
+	}
+
+	_, err := c.hub.Attach(c)
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	if c.IsSubscribed(name) {
+		return name, fmt.Errorf("already subscribed to `%s`", name)
+	}
+
+	c.subscriptions = append(c.subscriptions, clientSubscription{
+		Name:           name,
+		Specifications: []string{},
+	})
+
+	return name, nil
+}
+
+// Unsubscribe a client from a channel
+func (c *Client) Unsubscribe(metadata map[string]string) (string, error) {
+	name, ok := metadata["channel"]
+	if !ok {
+		return name, errors.New("no channel specified")
+	}
+
+	if !c.IsSubscribed(name) {
+		return name, fmt.Errorf("not subscribed to `%s`", name)
+	}
+
+	// remove subscription
+	subs, err := removeSub(c.subscriptions, name)
+	if err != nil {
+		fmt.Println(err)
+	}
+	c.subscriptions = subs
+
+	if len(subs) < 1 {
+		_, err := c.hub.Detach(c)
+		if err != nil {
+			fmt.Println(err)
+		}
+	}
+
+	return name, nil
+}
+
+func removeSub(subs []clientSubscription, name string) ([]clientSubscription, error) {
+	index := -1
+	for i, sub := range subs {
+		if sub.Name == name {
+			index = i
+			break
+		}
+	}
+
+	if index < 0 {
+		return subs, fmt.Errorf("no subscription for '%s' present", name)
+	}
+
+	// swap target with last
+	subs[len(subs)-1], subs[index] = subs[index], subs[len(subs)-1]
+
+	return subs[:len(subs)-1], nil
 }
 
 // Write broadcasted data to the client's stream
@@ -101,7 +191,7 @@ func (c *Client) listen() {
 
 		switch received.Event {
 		case SUBSCRIBE:
-			channel, err := c.hub.Subscribe(c)
+			channel, err := c.Subscribe(received.Metadata)
 			if err != nil {
 				c.events <- *NewEvent("error", 2, fmt.Sprintf("could not subscribe: %s", err))
 				continue
@@ -109,7 +199,7 @@ func (c *Client) listen() {
 
 			c.events <- *NewEvent("info", 1, fmt.Sprintf("successfully subscribed to `%s`", channel))
 		case UNSUBSCRIBE:
-			channel, err := c.hub.Unsubscribe(c)
+			channel, err := c.Unsubscribe(received.Metadata)
 			if err != nil {
 				c.events <- *NewEvent("error", 2, fmt.Sprintf("could not unsubscribe: %s", err))
 				continue
@@ -121,8 +211,8 @@ func (c *Client) listen() {
 }
 
 func (c *Client) closeConnection(connErr error, closeCode int) {
-	// unsubscribe client from the hub
-	_, err := c.hub.Unsubscribe(c)
+	// detach client from the hub
+	_, err := c.hub.Detach(c)
 	if err != nil {
 		fmt.Println(err)
 	}

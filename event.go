@@ -18,9 +18,10 @@ type StreamableEvent interface {
 
 // Event represents either an `info`- or an `error` event
 type Event struct {
-	Event   string `json:"event"`
-	Code    int    `json:"code"`
-	Message string `json:"message"`
+	Event    string            `json:"event"`
+	Code     int               `json:"code"`
+	Message  string            `json:"message"`
+	Metadata map[string]string `json:"meta"`
 	ByteStreamed
 }
 
