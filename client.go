@@ -210,6 +210,8 @@ func (c *Client) listen() {
 			}
 
 			c.events <- *NewEvent("info", 1, fmt.Sprintf("successfully unsubscribed from `%s`", channel))
+		default:
+			c.hub.onEvent(received)
 		}
 	}
 }

@@ -18,11 +18,14 @@ var upgrader = websocket.Upgrader{
 	WriteBufferSize: 1024,
 }
 
+type eventHandler func(string, int, string, map[string]string)
+
 // Hub contains streams for receiving and broadcasting data
 type Hub struct {
-	Publisher   Publisher
-	Writer      Writer
-	Subscribers map[string]*Client
+	Publisher    Publisher
+	Writer       Writer
+	Subscribers  map[string]*Client
+	EventHandler eventHandler
 	sync.RWMutex
 }
 
@@ -32,6 +35,9 @@ func NewHub(pub Publisher, wr Writer) *Hub {
 		Publisher:   pub,
 		Writer:      wr,
 		Subscribers: map[string]*Client{},
+		EventHandler: func(event string, code int, message string, meta map[string]string) {
+			// fmt.Printf("unhandled event:\n%s\n%d\n%s\n%v\n", event, code, message, meta)
+		},
 	}
 }
 
@@ -152,6 +158,15 @@ func (hub *Hub) Detach(c *Client) (string, error) {
 
 	delete(hub.Subscribers, c.Identifier)
 	return name, nil
+}
+
+// SetEventHandler sets a new event handler for the hub
+func (hub *Hub) SetEventHandler(h eventHandler) {
+	hub.EventHandler = h
+}
+
+func (hub *Hub) onEvent(event Event) {
+	hub.EventHandler(event.Event, event.Code, event.Message, event.Metadata)
 }
 
 func handleSocketConnection(res http.ResponseWriter, req *http.Request, hub *Hub) {
