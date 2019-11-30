@@ -18,14 +18,15 @@ var upgrader = websocket.Upgrader{
 	WriteBufferSize: 1024,
 }
 
-type eventHandler func(string, int, string, map[string]string)
+type eventHandler func(string, int, string, map[string]interface{})
 
 // Hub contains streams for receiving and broadcasting data
 type Hub struct {
-	Publisher    Publisher
-	Writer       Writer
-	Subscribers  map[string]*Client
-	EventHandler eventHandler
+	Publisher     Publisher
+	Writer        Writer
+	Subscribers   map[string]*Client
+	EventHandler  eventHandler
+	requiresToken bool
 	sync.RWMutex
 }
 
@@ -35,9 +36,10 @@ func NewHub(pub Publisher, wr Writer) *Hub {
 		Publisher:   pub,
 		Writer:      wr,
 		Subscribers: map[string]*Client{},
-		EventHandler: func(event string, code int, message string, meta map[string]string) {
+		EventHandler: func(event string, code int, message string, meta map[string]interface{}) {
 			// fmt.Printf("unhandled event:\n%s\n%d\n%s\n%v\n", event, code, message, meta)
 		},
+		requiresToken: false,
 	}
 }
 
@@ -165,17 +167,45 @@ func (hub *Hub) SetEventHandler(h eventHandler) {
 	hub.EventHandler = h
 }
 
-func (hub *Hub) onEvent(event Event) {
-	hub.EventHandler(event.Event, event.Code, event.Message, event.Metadata)
+// RequireToken sets authentication tokens as required for the hub
+func (hub *Hub) RequireToken() {
+	hub.requiresToken = true
+}
+
+func (hub *Hub) onEvent(event Event, clientMeta map[string]interface{}) {
+	meta := make(map[string]interface{})
+	for k, v := range event.Metadata {
+		meta[k] = v
+	}
+	for k, v := range clientMeta {
+		meta[k] = v
+	}
+
+	hub.EventHandler(event.Event, event.Code, event.Message, meta)
 }
 
 func handleSocketConnection(res http.ResponseWriter, req *http.Request, hub *Hub) {
+	meta := make(map[string]interface{})
+	if hub.requiresToken {
+		q := req.URL.Query()
+		token, ok := q["token"]
+		if !ok || len(token) < 1 {
+			serverError(res, http.StatusUnauthorized)
+			return
+		}
+		meta["token"] = token[0]
+	}
+
 	conn, err := upgrader.Upgrade(res, req, nil)
 	if err != nil {
-		fmt.Println(err)
+		serverError(res, http.StatusInternalServerError)
 		return
 	}
 
 	// create a listening client
-	NewClient(conn, hub)
+	NewClient(conn, hub, meta)
+}
+
+func serverError(w http.ResponseWriter, code int) {
+	http.Error(w, http.StatusText(code), code)
 }

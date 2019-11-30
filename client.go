@@ -30,10 +30,11 @@ type Client struct {
 	events        chan Event
 	hub           *Hub
 	subscriptions []clientSubscription
+	meta          map[string]interface{}
 }
 
 // NewClient returns a new Client instance
-func NewClient(socket *websocket.Conn, hub *Hub) *Client {
+func NewClient(socket *websocket.Conn, hub *Hub, meta map[string]interface{}) *Client {
 	identifier := randomString(6)
 
 	var subs []clientSubscription
@@ -44,6 +45,7 @@ func NewClient(socket *websocket.Conn, hub *Hub) *Client {
 		make(chan Event),
 		hub,
 		subs,
+		meta,
 	}
 
 	go client.write(hub.Writer)
@@ -211,7 +213,7 @@ func (c *Client) listen() {
 
 			c.events <- *NewEvent("info", 1, fmt.Sprintf("successfully unsubscribed from `%s`", channel))
 		default:
-			c.hub.onEvent(received)
+			c.hub.onEvent(received, c.meta)
 		}
 	}
 }
